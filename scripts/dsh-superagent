@@ -7,7 +7,6 @@ and 3 when it runs and waits for setup. A restart fixes neither 2 nor 3: they ne
 """
 
 import argparse
-import fcntl
 import json
 import os
 from pathlib import Path
@@ -20,6 +19,12 @@ import sys
 import time
 import urllib.error
 import urllib.request
+
+try:  # POSIX only
+    import fcntl
+except ImportError:  # Windows
+    fcntl = None
+    import msvcrt
 
 ROOT = Path(__file__).resolve().parent.parent
 ARTIFACTS = ROOT / '.artifacts'
@@ -55,12 +60,44 @@ def serves(args, profile):
 
 
 def ps(*options, check=False):
-    """Yield `(pid, comm, args)` tuples from `ps`; arguments are split on whitespace, so paths with spaces become several words and only `--profile` and subcommands are inspected."""
-    result = subprocess.run(['ps', '-ww', *options, '-o', 'pid=,ucomm=,args='], check=check, capture_output=True, text=True)
+    """Yield `(pid, comm, args)` tuples. POSIX reads `ps`; Windows reads `wmic process get`."""
+    if sys.platform == 'win32':
+        yield from _ps_windows(options, check)
+        return
+    result = subprocess.run(['ps', '-ww', *options, '-o', 'pid=,ucomm=,args='], check=check, capture_output=True, text=True, encoding='utf-8', errors='replace')
     for line in result.stdout.splitlines():
         parts = line.split(None, 2)
         if len(parts) == 3 and parts[0].isdigit():
             yield int(parts[0]), parts[1], parts[2].split()
+
+
+def _ps_windows(options, check):
+    """Windows equivalent of `ps`: PowerShell `Get-CimInstance` (wmic is removed in Windows 11)."""
+    pids = [o for i, o in enumerate(options) if i and options[i - 1] == '-p']
+    where = ''
+    if pids:
+        where = ' | Where-Object { ' + ' -or '.join('$_.ProcessId -eq ' + str(p) for p in pids) + ' }'
+    script = (
+        "Get-CimInstance Win32_Process" + where +
+        " | Select-Object ProcessId,Name,CommandLine | ConvertTo-Json -Compress"
+    )
+    try:
+        result = subprocess.run(['powershell', '-NoProfile', '-NonInteractive', '-Command', script],
+                                check=False, capture_output=True, encoding='utf-8', errors='replace', timeout=25)
+    except (OSError, subprocess.SubprocessError):
+        return
+    try:
+        data = json.loads((result.stdout or '').strip() or '[]')
+    except json.JSONDecodeError:
+        return
+    if isinstance(data, dict):
+        data = [data]
+    for b in data:
+        pid, name, command = b.get('ProcessId'), b.get('Name') or '', b.get('CommandLine') or ''
+        if not isinstance(pid, int) or not command:
+            continue
+        comm = name[:-4] if name.lower().endswith('.exe') else name
+        yield pid, comm, command.split()
 
 
 def running(pid, profile):
@@ -138,7 +175,10 @@ def stop(args, intentional=True):
     if intentional:
         (control(args.profile) / 'manually-stopped').write_text(time.strftime('%Y-%m-%dT%H:%M:%S%z') + '\n')
     for pid in pids:
-        os.kill(pid, signal.SIGINT)
+        if sys.platform == 'win32':
+            subprocess.run(['taskkill', '/PID', str(pid), '/T', '/F'], capture_output=True)
+        else:
+            os.kill(pid, signal.SIGINT)
     deadline = time.monotonic() + args.stop_timeout
     while any(running(pid, args.profile) for pid in pids):
         if time.monotonic() >= deadline:
@@ -163,25 +203,37 @@ def start(args):
         raise RuntimeError('Multiple dsh-superagent processes found; refusing to start another.')
     if not pids:
         dsh = shutil.which('dsh')
-        if not dsh or not shutil.which('tmux'):
-            raise RuntimeError('Both dsh and tmux must be on PATH.')
-        exists = subprocess.run(['tmux', 'has-session', '-t', '=' + session],
-                                capture_output=True).returncode == 0
+        if not dsh:
+            raise RuntimeError('dsh must be on PATH.')
+        if sys.platform != 'win32' and not shutil.which('tmux'):
+            raise RuntimeError('tmux must be on PATH on POSIX. On Windows it is not needed.')
         if state(args.url) is not None:
             raise RuntimeError('An existing orchestrator answers at this URL; refusing duplicate startup.')
         stamp = time.strftime('%Y%m%d-%H%M%S')
         log = ARTIFACTS / f'dsh-superagent-{args.profile}-{stamp}-{os.getpid()}.log'
         log.touch()
         prune_logs(args.profile)
-        # `exec` replaces the shell so the pane PID printed by tmux is the DSH service process itself.
-        command = ('umask 077; exec ' + shlex.join([dsh, '--profile', args.profile, '--no-open'])
-                   + ' >> ' + shlex.quote(str(log)) + ' 2>&1')
-        # Reuse an existing tmux session without disturbing other windows.
-        target = ['new-window', '-t', '=' + session + ':'] if exists else ['new-session', '-s', session]
-        pane = subprocess.run(['tmux', *target, '-d', '-P', '-F', '#{pane_pid}', '-n', 'server', '-c', str(ROOT), command],
-                              check=True, capture_output=True, text=True).stdout.strip()
-        if pane.isdigit():
-            (control(args.profile) / 'service.pid').write_text(pane + '\n')
+        if sys.platform == 'win32':
+            # Windows: no tmux, no shell. Start detached, redirect output to the log, record the PID.
+            with log.open('ab') as logf:
+                child = subprocess.Popen(
+                    [dsh, '--profile', args.profile, '--no-open'],
+                    cwd=str(ROOT), stdout=logf, stderr=subprocess.STDOUT,
+                    creationflags=subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS,
+                    close_fds=True)
+            (control(args.profile) / 'service.pid').write_text(str(child.pid) + '\n')
+        else:
+            exists = subprocess.run(['tmux', 'has-session', '-t', '=' + session],
+                                    capture_output=True).returncode == 0
+            # `exec` replaces the shell so the pane PID printed by tmux is the DSH service process itself.
+            command = ('umask 077; exec ' + shlex.join([dsh, '--profile', args.profile, '--no-open'])
+                       + ' >> ' + shlex.quote(str(log)) + ' 2>&1')
+            # Reuse an existing tmux session without disturbing other windows.
+            target = ['new-window', '-t', '=' + session + ':'] if exists else ['new-session', '-s', session]
+            pane = subprocess.run(['tmux', *target, '-d', '-P', '-F', '#{pane_pid}', '-n', 'server', '-c', str(ROOT), command],
+                                  check=True, capture_output=True, text=True, encoding='utf-8', errors='replace').stdout.strip()
+            if pane.isdigit():
+                (control(args.profile) / 'service.pid').write_text(pane + '\n')
         print('Log: ' + str(log), flush=True)
     else:
         (control(args.profile) / 'service.pid').write_text(f'{pids[0]}\n')
@@ -223,11 +275,15 @@ def main():
         parser.error('--timeout and --stop-timeout must be positive')
     if not re.fullmatch(r'[A-Za-z0-9_][A-Za-z0-9_.-]*', args.profile):
         parser.error('--profile must be a DSH profile name')
-    os.umask(0o077)
+    if sys.platform != 'win32':
+        os.umask(0o077)
     with (control(args.profile) / 'operation.lock').open('a') as lock:
         try:
-            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError:
+            if fcntl is not None:
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            else:
+                msvcrt.locking(lock.fileno(), msvcrt.LK_NBLCK, 1)
+        except (BlockingIOError, OSError):
             raise RuntimeError('Another dsh-superagent control operation is in progress.') from None
         if args.respect_stop and args.action in ('start', 'restart') and stopped(args.profile):
             print('Intentional stop is active; automatic recovery skipped.')
