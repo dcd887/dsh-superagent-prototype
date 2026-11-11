@@ -1,9 +1,9 @@
-# SuperAgent Windows 支持：已修 5 个 bug，卡在第 6 个
+# SuperAgent Windows 支持：已修 8 个 bug，1 个未解决
 
 > 日期：2026-11-11
 > 环境：Windows 11 · Python 3.14.7 · Node 24.19.0 · `@deepseek-ai/dsh 0.2.1-alpha.2` · `dsh-superagent-prototype` @ `8c32a9dc5d`
 > 目标：让 `dsh-superagent` 在 Windows 上跑起来，作为 PR 的证据
-> 结论：**启动能跑（8 项 health ready），但配置 GitHub Source 后插件不激活，原因未定位**
+> 结论：**启动能跑（8 项 health ready）；配置 GitHub Source 后插件不激活，原因未定位**
 
 ---
 
