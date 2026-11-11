@@ -216,10 +216,15 @@ def start(args):
         if sys.platform == 'win32':
             # Windows: no tmux, no shell. Start detached, redirect output to the log, record the PID.
             with log.open('ab') as logf:
+                # CREATE_NO_WINDOW keeps a console for the child (DSH needs one) while showing no window;
+                # DETACHED_PROCESS removes the console entirely and breaks plugin activation.
+                flags = subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW
+                # Use DEVNULL, not a file: DSH's plugin activation misbehaves when stdout is a regular file,
+                # and inheriting our stdout breaks once this script exits and the pipe closes.
                 child = subprocess.Popen(
                     [dsh, '--profile', args.profile, '--no-open'],
-                    cwd=str(ROOT), stdout=logf, stderr=subprocess.STDOUT,
-                    creationflags=subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS,
+                    cwd=str(ROOT), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                    creationflags=flags,
                     close_fds=True)
             (control(args.profile) / 'service.pid').write_text(str(child.pid) + '\n')
         else:
