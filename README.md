@@ -1,3 +1,37 @@
+# dsh-superagent (Windows fork)
+
+> **This fork adds Windows support to `deepseek-ai/dsh-superagent-prototype`.**
+>
+> The upstream repository does not accept pull requests (`has_issues: false` and the
+> `pulls` API returns 404), so the Windows fixes live here.
+>
+> **What changed** (2 files, +86 −22):
+> - `scripts/dsh-superagent` — no `fcntl` / `tmux` / `ps` on Windows: `msvcrt.locking`,
+>   `Get-CimInstance`, `Popen`, `taskkill`, skip `umask`, UTF-8 decode for every `subprocess`.
+> - `src/deployment.ts` — `stateDir` accepts Windows paths (`C:\\`, `C:/`, `\\server`),
+>   and `workerProbe` no longer shells out to `env(1)` on Windows.
+>
+> **Verified on Windows 11** (Python 3.14.7, Node 24.19.0, DSH 0.2.1-alpha.2):
+> `--help` works, `status` works, `ps()` lists 16 node processes, `start` brings the
+> profile up in 9.9 s with 8 health components `ready`, and `/orchestrator/api/state`
+> returns HTTP 200.
+>
+> **Known issue**: configuring the GitHub Source's `repository` makes
+> `dsh-superagent-github` fail to activate and takes the main plugin down with it.
+> `gh` itself works (`gh api user` → the agent account, `push: true`); the failure is
+> in plugin activation and the error is swallowed by the cordis loader. Without a
+> repository configured everything starts fine.
+>
+> **Windows setup note**: before the first `pnpm install`, set every entry under
+> `allowBuilds` in `pnpm-workspace.yaml` to `true` (pnpm writes
+> `set this to true or false` placeholders). Otherwise
+> `@deepseek-ai/dsh-subprocess-local`'s `postinstall` never runs, `spawn` fails, and
+> the GitHub Source check reports `spawn env ENOENT`.
+>
+> Full log: [WINDOWS-ISSUES.md](WINDOWS-ISSUES.md)
+>
+> ---
+
 # dsh-superagent
 
 > **Research prototype for reference only, not an official DeepSeek product.** This code grew out of our team's day-to-day development work, with much of the engineering done by coding agents. Treat it as research code, not production-ready software. It may still contain bugs, and its coding style and engineering practices may be inconsistent. Review and adapt it before using it in your own environment.
