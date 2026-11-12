@@ -73,6 +73,16 @@ node scripts/dsh-superagent stop
 
 上游目前只有一个 commit（`8c32a9dc`，2026-10-31），本分支基于它。上游若更新，需要 rebase 后重跑上面那套验证。
 
+## 反馈
+
+遇到其他 Windows 问题，欢迎在本仓库开 Issue。请附上：
+
+- 报错原文（文本，不要截图）
+- 环境版本：Windows 版本 / Node / Python / `@deepseek-ai/dsh` 版本
+- 复现命令
+
+有完整复现步骤的优先看。
+
 ## 许可
 
 MIT（与上游一致）。上游项目名与商标归其所有者。
