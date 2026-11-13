@@ -33,6 +33,17 @@
 
 ## 怎么用
 
+### 方式一：下载预构建包（推荐，不用自己 build）
+
+1. 下载 [dsh-superagent-win-v0.1.0.zip](https://github.com/dcd887/dsh-superagent-prototype/releases/download/v0.1.0-windows/dsh-superagent-win-v0.1.0.zip)（330 KB），解压到任意目录
+2. 在解压目录里右键 `install.ps1` → 使用 PowerShell 运行
+   - 脚本会自动找 DSH profile、在该 profile 的 `node_modules/@local` 下建 junction、然后打印配置片段
+3. 按提示把配置片段加进 profile 的 `cordis.patch.yml`，重启 DSH
+
+`stateDir` 是必填项，不填插件拒绝启动（上游行为，本补丁没改）。脚本会给出默认建议路径。
+
+### 方式二：从源码 build
+
 ```bash
 git clone https://github.com/dcd887/dsh-superagent-prototype
 cd dsh-superagent-prototype
@@ -47,6 +58,12 @@ node scripts/dsh-superagent stop
 ```
 
 环境：Windows 11 · Node 24.19.0 · Python 3.14.7 · `@deepseek-ai/dsh 0.2.1-alpha.2`
+
+### 关于包名
+
+本分支把 package 名从 `dsh-superagent` 改成了 `dsh-superagent-win`，author 改为本仓库维护者，`cordis.patch.yml` 里三处模块名同步改了。原因：避免与官方包名冲突，也避免解压后在 DSH 里显示成 DeepSeek 团队的作品。
+
+源码里 `delivery.ts` 等处的 `dsh-superagent` 字符串是内部数据标识（消息来源类型、前端路由 key），不是模块引用，未改动。
 
 ## 验证结果（可复现）
 
