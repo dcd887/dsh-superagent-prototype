@@ -59,6 +59,15 @@ node scripts/dsh-superagent stop
 
 环境：Windows 11 · Node 24.19.0 · Python 3.14.7 · `@deepseek-ai/dsh 0.2.1-alpha.2`
 
+### 版本兼容性（重要）
+
+预构建包是按 `@deepseek-ai/dsh 0.2.1-alpha.2` 编译的，不保证跨版本兼容。
+
+- DSH 升级后如果内部接口变了，这个包可能加载失败、插件不激活，或行为异常。
+- 遇到这种情况，请改用「方式二：从源码 build」，并把依赖对齐到你当前的 dsh 版本。
+- 本分支只在这个版本上做过完整验证（8 项 health ready），其他版本未测试。
+- 上游 `dsh-superagent` 本身就是 research prototype，它自己的版本兼容性也不保证。
+
 ### 关于包名
 
 本分支把 package 名从 `dsh-superagent` 改成了 `dsh-superagent-win`，author 改为本仓库维护者，`cordis.patch.yml` 里三处模块名同步改了。原因：避免与官方包名冲突，也避免解压后在 DSH 里显示成 DeepSeek 团队的作品。
